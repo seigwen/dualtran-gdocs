@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <style>
+      body { font: 13px/1.5 "Google Sans", Roboto, Arial, sans-serif; margin: 12px; color: #202124; }
+      h3 { font-size: 14px; margin: 0 0 12px; }
+      label { display: block; margin: 10px 0 4px; color: #5f6368; font-size: 12px; }
+      input, select { width: 100%; box-sizing: border-box; padding: 6px; border: 1px solid #dadce0; border-radius: 4px; }
+      button { margin-top: 14px; width: 100%; padding: 9px; background: #1a73e8; color: #fff; border: 0; border-radius: 4px; font-size: 13px; cursor: pointer; }
+      button:disabled { background: #9aa0a6; cursor: default; }
+      #status { margin-top: 12px; font-size: 12px; color: #5f6368; min-height: 18px; white-space: pre-wrap; }
+      .hint { color: #80868b; font-size: 11px; margin-top: 2px; }
+    </style>
+  </head>
+  <body>
+    <h3>DualTran Translate</h3>
+
+    <label for="engine">Engine</label>
+    <select id="engine">
+      <option value="google">Google Translate (no key)</option>
+      <option value="ai">AI endpoint (your key)</option>
+    </select>
+
+    <label for="target">Target language</label>
+    <input id="target" placeholder="zh-CN" />
+
+    <div id="ai-fields" hidden>
+      <label for="endpoint">API base URL</label>
+      <input id="endpoint" placeholder="https://api.openai.com/v1" />
+      <div class="hint">Must start with http:// or https://</div>
+
+      <label for="model">Model</label>
+      <input id="model" placeholder="gpt-4o-mini" />
+
+      <label for="apiKey">API key</label>
+      <input id="apiKey" type="password" placeholder="sk-..." />
+    </div>
+
+    <button id="run">Translate selection</button>
+    <div id="status"></div>
+
+    <script>
+      var settings = {};
+
+      function show(id, value) { document.getElementById(id).value = value || ""; }
+
+      function render() {
+        show("engine", settings.engine);
+        show("target", settings.target);
+        show("endpoint", settings.endpoint);
+        show("model", settings.model);
+        show("apiKey", settings.apiKey);
+        document.getElementById("ai-fields").hidden = settings.engine !== "ai";
+      }
+
+      function collect() {
+        return {
+          engine: document.getElementById("engine").value,
+          target: document.getElementById("target").value,
+          endpoint: document.getElementById("endpoint").value,
+          model: document.getElementById("model").value,
+          apiKey: document.getElementById("apiKey").value,
+        };
+      }
+
+      document.getElementById("engine").addEventListener("change", function () {
+        document.getElementById("ai-fields").hidden = this.value !== "ai";
+      });
+
+      document.getElementById("run").addEventListener("click", function () {
+        var button = this;
+        var status = document.getElementById("status");
+        button.disabled = true;
+        status.textContent = "Translating…";
+
+        google.script.run
+          .withSuccessHandler(function (result) {
+            status.textContent = result.message;
+            button.disabled = false;
+          })
+          .withFailureHandler(function (error) {
+            status.textContent = String(error && error.message ? error.message : error);
+            button.disabled = false;
+          })
+          .saveAndTranslate(collect());
+      });
+
+      google.script.run.withSuccessHandler(function (loaded) {
+        settings = loaded;
+        render();
+      }).getSettings();
+    </script>
+  </body>
+</html>
