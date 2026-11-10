@@ -52,13 +52,14 @@ function saveSettings(patch) {
 function translateText(text, settings) {
   settings = settings || getSettings();
   if (settings.engine === "google") {
-    var response = UrlFetchApp.fetch(DualTranCore.googleUrl(text, settings.target), {
-      muteHttpExceptions: true,
-    });
-    if (response.getResponseCode() !== 200) {
-      throw new Error("Google Translate returned HTTP " + response.getResponseCode());
+    // Apps Script's built-in Language service uses Google Translate without UrlFetchApp.
+    // The public translate.googleapis.com endpoint rate-limits shared Apps Script egress
+    // with HTTP 429, so prefer the built-in service for the no-key engine.
+    var translated = LanguageApp.translate(text, "", settings.target);
+    if (!translated || !translated.trim()) {
+      throw new Error("Google Translate returned an empty translation");
     }
-    return DualTranCore.parseGoogleResponse(JSON.parse(response.getContentText()));
+    return translated.trim();
   }
 
   var payload = DualTranCore.buildChatPayload(settings.model, text, settings.target);
