@@ -7,6 +7,18 @@
     "https://www.googleapis.com/auth/script.container.ui",
     "https://www.googleapis.com/auth/script.external_request"
   ],
+  "urlFetchWhitelist": [
+    "https://translate.googleapis.com/",
+    "https://api.openai.com/",
+    "https://api.anthropic.com/",
+    "https://api.deepseek.com/",
+    "https://openrouter.ai/",
+    "https://api.moonshot.cn/",
+    "https://dashscope.aliyuncs.com/",
+    "https://open.bigmodel.cn/",
+    "https://api.groq.com/",
+    "https://generativelanguage.googleapis.com/"
+  ],
   "addOns": {
     "common": {
       "name": "DualTran Translate",
