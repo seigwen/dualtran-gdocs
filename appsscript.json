@@ -9,6 +9,7 @@
   ],
   "urlFetchWhitelist": [
     "https://translate.googleapis.com/",
+    "https://models.dev/",
     "https://api.openai.com/",
     "https://api.anthropic.com/",
     "https://api.deepseek.com/",
