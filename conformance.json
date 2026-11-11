@@ -14,7 +14,7 @@
     ]
   },
   "platformLimits": [
-    { "rule": "R1", "minOptions": 30 },
+    { "rule": "R1", "minOptions": 40 },
     { "rule": "R5", "locales": 38 }
   ]
 }
