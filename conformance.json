@@ -1,0 +1,20 @@
+{
+  "spec": "2.0.0",
+  "host": "dualtran-gdocs",
+  "payload": "scripts/conformance/payload.mjs",
+  "static": {
+    "files": ["Sidebar.html", "Core.gs", "Code.gs", "I18N.gs"],
+    "patterns": [
+      "providerSeparator",
+      "__separator__",
+      "__more__",
+      "More (models.dev)",
+      { "token": "target-input", "regex": "<input[^>]+id=\"target\"" },
+      { "token": "model-input", "regex": "<input[^>]+id=\"model\"" }
+    ]
+  },
+  "platformLimits": [
+    { "rule": "R1", "minOptions": 30 },
+    { "rule": "R5", "locales": 38 }
+  ]
+}

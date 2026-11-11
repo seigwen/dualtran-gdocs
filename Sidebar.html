@@ -14,69 +14,182 @@
     </style>
   </head>
   <body>
-    <h3>DualTran Translate</h3>
+    <h3 id="panel-title">DualTran Translate</h3>
 
-    <label for="engine">Engine</label>
+    <label for="engine" data-i18n="engine">Engine</label>
     <select id="engine">
-      <option value="google">Google Translate (no key)</option>
-      <option value="ai">AI endpoint (your key)</option>
+      <option value="google" data-i18n="engineGoogle">Google Translate (no key)</option>
+      <option value="ai" data-i18n="engineAi">AI endpoint (your key)</option>
     </select>
 
-    <label for="target">Target language</label>
-    <input id="target" placeholder="zh-CN" />
+    <label for="target" data-i18n="target">Target language</label>
+    <select id="target"></select>
 
     <div id="ai-fields" hidden>
-      <label for="endpoint">API base URL</label>
+      <label for="provider" data-i18n="provider">Provider</label>
+      <select id="provider"></select>
+
+      <label for="model" data-i18n="model">Model</label>
+      <select id="model"></select>
+
+      <label for="reasoning" data-i18n="reasoning">Reasoning effort</label>
+      <select id="reasoning"></select>
+
+      <label for="endpoint" data-i18n="endpoint">API base URL</label>
       <input id="endpoint" placeholder="https://api.openai.com/v1" />
-      <div class="hint">Must start with http:// or https://</div>
+      <div class="hint" id="endpoint-hint" data-i18n="endpointHint">Must start with http:// or https://</div>
 
-      <label for="model">Model</label>
-      <input id="model" placeholder="gpt-4o-mini" />
-
-      <label for="apiKey">API key</label>
+      <label for="apiKey" data-i18n="apiKey">API key</label>
       <input id="apiKey" type="password" placeholder="sk-..." />
     </div>
 
-    <button id="run">Translate selection</button>
+    <button id="run" data-i18n="translate">Translate selection</button>
     <div id="status"></div>
 
     <script>
+      // Everything visible comes from the `ui` block of getPanelData(); nothing is hard-coded.
+      var panel = null;
+      var ui = {};
       var settings = {};
+      var endpointDirty = false;
 
-      function show(id, value) { document.getElementById(id).value = value || ""; }
+      function el(id) {
+        return document.getElementById(id);
+      }
 
-      function render() {
-        show("engine", settings.engine);
-        show("target", settings.target);
-        show("endpoint", settings.endpoint);
-        show("model", settings.model);
-        show("apiKey", settings.apiKey);
-        document.getElementById("ai-fields").hidden = settings.engine !== "ai";
+      function t(key) {
+        return ui[key] || key;
+      }
+
+      function fill(template, values) {
+        return String(template).replace(/\{([A-Z][A-Z0-9_]*)\}/g, function (match, name) {
+          return Object.prototype.hasOwnProperty.call(values, name) ? String(values[name]) : match;
+        });
+      }
+
+      function setOptions(select, rows, selected) {
+        select.innerHTML = "";
+        (rows || []).forEach(function (row) {
+          var option = document.createElement("option");
+          option.value = String(row.value);
+          option.label = String(row.label == null ? row.value : row.label);
+          option.textContent = option.label;
+          select.appendChild(option);
+        });
+        if (selected) select.value = String(selected);
+        if (!select.value && select.options.length) select.selectedIndex = 0;
+      }
+
+      function labels() {
+        var nodes = document.querySelectorAll("[data-i18n]");
+        for (var i = 0; i < nodes.length; i += 1) {
+          nodes[i].textContent = t(nodes[i].getAttribute("data-i18n"));
+        }
+        el("panel-title").textContent = t("title");
+        el("run").textContent = t("translate");
+      }
+
+      function providerEntry(id) {
+        var rows = (panel && panel.providers) || [];
+        for (var i = 0; i < rows.length; i += 1) {
+          if (rows[i].value === id) return rows[i];
+        }
+        return null;
+      }
+
+      function levelsFor(providerId, modelId) {
+        var byProvider = (panel && panel.reasoningByProvider) || {};
+        return (byProvider[providerId] || {})[modelId] || [];
+      }
+
+      // R4: the picker always offers the "lowest" sentinel first, then the levels the selected
+      // model actually declares. The sentinel is resolved server-side when the request is built.
+      function setReasoningOptions(providerId, modelId) {
+        var declared = levelsFor(providerId, modelId);
+        var rows = [{ value: "lowest", label: "Lowest" }];
+        for (var i = 0; i < declared.length; i += 1) {
+          var level = declared[i];
+          rows.push({ value: level, label: level.charAt(0).toUpperCase() + level.slice(1) });
+        }
+        setOptions(el("reasoning"), rows, settings.reasoning || "lowest");
+      }
+
+      function renderModels(selected) {
+        var byProvider = (panel && panel.modelsByProvider) || {};
+        var rows = byProvider[el("provider").value] || [];
+        if (!rows.length) rows = [{ value: "", label: t("statusCatalogOffline") }];
+        setOptions(el("model"), rows, selected);
+      }
+
+      /** R1/R2/R5: one entry point for the first paint, driven entirely by getPanelData(). */
+      function renderPanel(data) {
+        panel = data || {};
+        ui = panel.ui || {};
+        settings = panel.settings || {};
+        labels();
+
+        setOptions(el("target"), panel.languages || [], settings.target);
+        setOptions(el("provider"), panel.providers || [], settings.provider);
+        renderModels(settings.model);
+        setReasoningOptions(el("provider").value, el("model").value);
+
+        el("engine").value = settings.engine || "google";
+        el("endpoint").value = settings.endpoint || "";
+        el("apiKey").value = settings.apiKey || "";
+        el("ai-fields").hidden = el("engine").value !== "ai";
+        el("endpoint-hint").textContent = t("endpointHint");
+        el("status").textContent = "";
+        endpointDirty = false;
       }
 
       function collect() {
         return {
-          engine: document.getElementById("engine").value,
-          target: document.getElementById("target").value,
-          endpoint: document.getElementById("endpoint").value,
-          model: document.getElementById("model").value,
-          apiKey: document.getElementById("apiKey").value,
+          engine: el("engine").value,
+          target: el("target").value,
+          provider: el("provider").value,
+          model: el("model").value,
+          reasoning: el("reasoning").value,
+          endpoint: el("endpoint").value,
+          apiKey: el("apiKey").value,
         };
       }
 
+      /** R3: a provider change refills the endpoint unless the user typed their own value. */
+      function onProviderChange() {
+        var next = el("provider").value;
+        var entry = providerEntry(next);
+        if (!endpointDirty && entry && entry.api) el("endpoint").value = entry.api;
+        renderModels("");
+        setReasoningOptions(next, el("model").value);
+      }
+
+      function onModelChange() {
+        setReasoningOptions(el("provider").value, el("model").value);
+      }
+
+      function onEndpointInput() {
+        endpointDirty = true;
+      }
+
       document.getElementById("engine").addEventListener("change", function () {
-        document.getElementById("ai-fields").hidden = this.value !== "ai";
+        el("ai-fields").hidden = this.value !== "ai";
       });
+
+      document.getElementById("provider").addEventListener("change", onProviderChange);
+
+      document.getElementById("model").addEventListener("change", onModelChange);
+
+      document.getElementById("endpoint").addEventListener("input", onEndpointInput);
 
       document.getElementById("run").addEventListener("click", function () {
         var button = this;
-        var status = document.getElementById("status");
+        var status = el("status");
         button.disabled = true;
-        status.textContent = "Translating…";
+        status.textContent = t("statusTranslating");
 
         google.script.run
           .withSuccessHandler(function (result) {
-            status.textContent = result.message;
+            status.textContent = result && result.message ? result.message : fill(t("statusTranslated"), { COUNT: 0 });
             button.disabled = false;
           })
           .withFailureHandler(function (error) {
@@ -86,10 +199,12 @@
           .saveAndTranslate(collect());
       });
 
-      google.script.run.withSuccessHandler(function (loaded) {
-        settings = loaded;
-        render();
-      }).getSettings();
+      google.script.run
+        .withSuccessHandler(renderPanel)
+        .withFailureHandler(function (error) {
+          el("status").textContent = String(error && error.message ? error.message : error);
+        })
+        .getPanelData();
     </script>
   </body>
 </html>
