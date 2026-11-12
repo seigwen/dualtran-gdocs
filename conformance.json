@@ -1,5 +1,5 @@
 {
-  "spec": "2.0.0",
+  "spec": "2.1.0",
   "host": "dualtran-gdocs",
   "payload": "scripts/conformance/payload.mjs",
   "static": {
@@ -10,7 +10,8 @@
       "__more__",
       "More (models.dev)",
       { "token": "target-input", "regex": "<input[^>]+id=\"target\"" },
-      { "token": "model-input", "regex": "<input[^>]+id=\"model\"" }
+      { "token": "model-input", "regex": "<input[^>]+id=\"model\"" },
+      { "token": "openai-fallback", "regex": "\\|\\|\\s*[\"']openai[\"']" }
     ]
   },
   "platformLimits": [

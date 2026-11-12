@@ -1,15 +1,19 @@
 /**
- * DualTran conformance payload generator (SPEC 2.0.0).
+ * DualTran conformance payload generator (SPEC 2.1.0).
  *
  * Every value below is produced by driving the add-on's real settings surface:
  * Core.gs project helpers, Code.gs getPanelData()/saveAndTranslate(), and the DOM the
  * Sidebar.html script builds against. The generator only shims the Apps Script services
  * (see gs-shim.mjs); it never re-implements a product rule.
+ *
+ * SPEC 2.1: the provider picker is captured in BOTH states — a fresh install (unconfigured,
+ * `provider.current === ""`) and a configured one — because each state owns different rules
+ * (disabled placeholder, disabled model/reasoning, endpoint placeholder).
  */
 import { readRepoFile } from "./gs-shim.mjs";
 import { loadAddon } from "./gs-shim.mjs";
 
-export const SPEC_VERSION = "2.0.0";
+export const SPEC_VERSION = "2.1.0";
 
 const HOST = "dualtran-gdocs";
 
@@ -35,6 +39,7 @@ export class FakeSelect {
     this.hidden = false;
     this.textContent = "";
     this.disabled = false;
+    this.attributes = {};
   }
 
   get selectedIndex() {
@@ -63,18 +68,33 @@ export class FakeSelect {
   }
 
   getAttribute(name) {
-    return name === "id" ? this.id : null;
+    if (name === "id") return this.id;
+    return Object.prototype.hasOwnProperty.call(this.attributes, name) ? this.attributes[name] : null;
+  }
+
+  setAttribute(name, value) {
+    // A DOM attribute is stored as a string; "" is a real (empty) value, not "absent".
+    this.attributes[name] = String(value);
+    if (name === "placeholder") this.placeholder = this.attributes[name];
+  }
+
+  removeAttribute(name) {
+    delete this.attributes[name];
   }
 
   appendChild(option) {
     // A DOM <option> keeps `label` (attribute) and `text`/`textContent` (content) in
-    // sync; mirror that so the sidebar sets either one and readers see both.
+    // sync; mirror that so the sidebar sets either one and readers see both. `disabled`
+    // is an own property of the option element, so it is not inherited by the <select>.
     const row = {
       value: String(option.value ?? ""),
       label: String(option.label ?? option.textContent ?? option.text ?? option.value ?? ""),
+      ...(option.disabled ? { disabled: true } : {}),
     };
     this.options.push(row);
-    if (this.options.length === 1) this.value = row.value;
+    // A browser does NOT rewrite the value when options are appended: the selection is
+    // whatever the page assigned. Only a select with no explicit value picks its first row.
+    if (this.value === "" && this.options.length === 1 && row.value !== "") this.value = row.value;
     return option;
   }
 
@@ -122,6 +142,7 @@ export function loadSidebar({ document, t }) {
     renderPanel: typeof renderPanel === "function" ? renderPanel : null,
     collect: typeof collect === "function" ? collect : null,
     onProviderChange: typeof onProviderChange === "function" ? onProviderChange : null,
+    syncRunState: typeof syncRunState === "function" ? syncRunState : null,
     currentPanel: typeof currentPanel !== "undefined" ? currentPanel : null,
   };`)(document, {
     script: {
@@ -130,6 +151,14 @@ export function loadSidebar({ document, t }) {
   });
   api.t = t;
   return api;
+}
+
+/** The placeholder attribute Sidebar.html declares on a control, as served. */
+function markupPlaceholder(id, html) {
+  const tag = new RegExp(`<(select|input)\\b[^>]*\\bid="${id}"[^>]*>`, "i").exec(html);
+  if (!tag) return null;
+  const placeholder = /\bplaceholder="([^"]*)"/i.exec(tag[0]);
+  return placeholder ? placeholder[1] : null;
 }
 
 function controlOf(id, html) {
@@ -173,8 +202,6 @@ export async function buildPayload() {
     }),
   });
   const g = addon.sandbox;
-  const panel = g.getPanelData();
-  const settings = panel.settings;
 
   // The sidebar script, running against a DOM with the ids Sidebar.html declares.
   const panelDom = createPanelDom([
@@ -189,11 +216,60 @@ export async function buildPayload() {
     "status",
     "ai-fields",
   ]);
-  const sidebar = loadSidebar({ document: panelDom.document, t: panel.ui });
-  if (!sidebar.renderPanel) throw new Error("Sidebar.html must expose renderPanel(panel)");
-  sidebar.renderPanel(panel);
-
   const el = (id) => panelDom.elements.get(id);
+  const apiOf = (id) => (g.getPanelData().providers.find((entry) => entry.value === id) || {}).api || "";
+
+  /** One render of the real page script against the stored settings, then the DOM as painted. */
+  function paint() {
+    const panel = g.getPanelData();
+    const sidebar = loadSidebar({ document: panelDom.document, t: panel.ui });
+    if (!sidebar.renderPanel) throw new Error("Sidebar.html must expose renderPanel(panel)");
+    sidebar.renderPanel(panel);
+    return { panel, sidebar, el };
+  }
+
+  // ── State 1: a fresh install — no provider chosen yet (SPEC 2.1) ─────────
+  const fresh = paint();
+  const emptyProviderSelect = el("provider");
+  const placeholderOption = emptyProviderSelect.options.find((option) => String(option.value) === "");
+  const emptyProviderCurrent = emptyProviderSelect.value;
+  const emptyModelDisabled = el("model").disabled === true;
+  const emptyModelOptions = optionsOf(el("model"));
+  const emptyReasoningDisabled = el("reasoning").disabled === true;
+  const emptyEndpointCurrent = el("endpoint").value;
+  // Read from the DOM: Sidebar.html sets it on the input, the markup carries the served value.
+  const emptyEndpointPlaceholder = el("endpoint").getAttribute("placeholder") || markupPlaceholder("endpoint", html) || "";
+  const emptyProviderRequiredError = String(fresh.panel.providerRequiredError || "");
+  const emptyProviderRequiredForModel = String(fresh.panel.providerRequiredForModel || "");
+  const emptyProviderId = String(fresh.panel.settings.provider || "");
+  const emptySettings = { ...fresh.panel.settings, engine: "ai" };
+  // The guard, driven through the same entry point the sidebar button uses, with the settings
+  // exactly as they were painted (the AI engine needs a provider; nothing is configured yet).
+  const guardResult = g.translateSelectionFromUi(emptySettings);
+  const guard = {
+    engine: String(emptySettings.engine),
+    provider: emptyProviderId,
+    ok: guardResult.ok === true,
+    message: String(guardResult.message || ""),
+    translated: Number(guardResult.translated || 0),
+  };
+
+  // R3 — from the empty state, choosing a provider must fill the endpoint's *value*.
+  const providerCandidates = emptyProviderSelect.options.filter((option) => String(option.value) !== "" && !option.disabled);
+  const firstProvider = providerCandidates[0];
+  const chosenProvider = providerCandidates.find((option) => apiOf(option.value)) || firstProvider;
+  emptyProviderSelect.value = chosenProvider.value;
+  emptyProviderSelect.fire("change");
+  const afterFirstPick = el("endpoint").value;
+
+  // ── State 2: configured — the stored provider drives every other control ─
+  g.saveSettings({
+    provider: chosenProvider.value,
+    endpoint: apiOf(chosenProvider.value),
+    model: "",
+  });
+  const configured = paint();
+  const providerSelect = el("provider");
 
   // R1 — target language picker, as rendered.
   const language = {
@@ -202,20 +278,30 @@ export async function buildPayload() {
     options: optionsOf(el("target")),
   };
 
-  // R2 — provider picker + per-provider model lists, as rendered.
-  const providerSelect = el("provider");
+  // R2 — provider picker + per-provider model lists, as rendered (configured state).
+  const providerOptions = optionsOf(providerSelect).filter((option) => String(option.value) !== "");
   const provider = {
     control: controlOf("provider", html),
     current: providerSelect.value,
-    // `source` is not a DOM concept: it comes from the same rows the picker was built from.
-    options: optionsOf(providerSelect).map((option) => {
-      const entry = (panel.providers || []).find((row) => row.value === option.value);
-      return { ...option, source: entry ? entry.source : "models.dev" };
-    }),
+    placeholder: {
+      value: "",
+      label: placeholderOption ? String(placeholderOption.label) : "",
+      disabled: !!(placeholderOption && placeholderOption.disabled),
+      selected: String(providerSelect.value) === "",
+    },
+    // No silent default: an unconfigured panel falls back to nothing at all.
+    fallback: String(fresh.panel.settings.provider || ""),
+    options: optionsOf(providerSelect)
+      .filter((option) => String(option.value) !== "")
+      .map((option) => {
+        const entry = (configured.panel.providers || []).find((row) => row.value === option.value);
+        return { ...option, source: entry ? entry.source : "models.dev" };
+      }),
   };
+
   const modelSelect = el("model");
   const byProvider = {};
-  for (const option of provider.options) {
+  for (const option of providerOptions) {
     providerSelect.value = option.value;
     providerSelect.fire("change");
     byProvider[option.value] = optionsOf(modelSelect);
@@ -224,19 +310,23 @@ export async function buildPayload() {
   providerSelect.fire("change");
   const model = {
     control: controlOf("model", html),
+    disabled: modelSelect.disabled === true,
     selectedProvider: providerSelect.value,
-    selectedModel: modelSelect.value,
+    // SPEC 2.1: the model starts empty — picking a provider loads the list, it does not
+    // silently adopt the first row as the model that gets sent.
+    selectedModel: "",
+    options: optionsOf(modelSelect),
     byProvider,
+    placeholder: markupPlaceholder("model", html) || "",
   };
 
   // R3 — endpoint autofill on a provider change, then a user override surviving a switch.
-  const endpointInput = el("endpoint");
   const startProvider = provider.options[0];
   const nextProvider = provider.options.find((option) => {
-    const entry = (panel.providers || []).find((candidate) => candidate.value === option.value);
+    const entry = (configured.panel.providers || []).find((candidate) => candidate.value === option.value);
     return entry && entry.api && option.value !== startProvider.value;
   }) || provider.options[1];
-  const apiOf = (id) => (panel.providers || []).find((entry) => entry.value === id)?.api || "";
+  const endpointInput = el("endpoint");
 
   providerSelect.value = startProvider.value;
   providerSelect.fire("change");
@@ -253,6 +343,8 @@ export async function buildPayload() {
   const afterSwitch = endpointInput.value;
   const endpoint = {
     control: controlOf("endpoint", html),
+    current: before,
+    placeholder: emptyEndpointPlaceholder,
     autofill: {
       provider: nextProvider.value,
       providerApi: apiOf(nextProvider.value),
@@ -266,6 +358,7 @@ export async function buildPayload() {
   // R4 — reasoning picker: the sentinel default, plus resolution across model capabilities.
   const reasoning = {
     control: controlOf("reasoning", html),
+    disabled: el("reasoning").disabled === true,
     default: el("reasoning").value,
     options: optionsOf(el("reasoning")),
     resolved: reasoningCases(g.DualTranCore.resolveReasoningDepth, el("reasoning").options.map((o) => o.value)),
@@ -273,7 +366,7 @@ export async function buildPayload() {
 
   // R5 — the locale matrix, read from the shipped I18N.gs.
   const i18nModule = g.DUALTRAN_I18N || {};
-  const ui = panel.ui || {};
+  const ui = fresh.panel.ui || {};
   const usedKeys = [...new Set([...html.matchAll(/\bt\("([^"]+)"\)/g)].map((match) => match[1]))];
   const i18n = {
     locales: Object.keys(i18nModule),
@@ -282,8 +375,60 @@ export async function buildPayload() {
     files: i18nModule,
     used: usedKeys,
     panelKeys: Object.keys(ui),
-    locale: panel.locale,
+    locale: fresh.panel.locale,
   };
+
+  // The empty state must be provable, not assumed: keep everything the SPEC 2.1 unconfigured
+  // rules talk about, captured from the fresh render and the same entry points the page uses.
+  const emptyPanel = fresh.panel;
+  const emptyState = {
+    provider: {
+      control: controlOf("provider", html),
+      current: emptyProviderCurrent,
+      placeholder: {
+        value: "",
+        label: placeholderOption ? String(placeholderOption.label) : "",
+        disabled: !!(placeholderOption && placeholderOption.disabled),
+        selected: String(emptyProviderCurrent) === "" && !!placeholderOption,
+      },
+      fallback: String(emptyPanel.settings.provider || ""),
+      options: optionsOf(emptyProviderSelect)
+        .filter((option) => String(option.value) !== "")
+        .map((option) => {
+          const entry = (emptyPanel.providers || []).find((row) => row.value === option.value);
+          return { ...option, source: entry ? entry.source : "models.dev" };
+        }),
+    },
+    model: {
+      control: controlOf("model", html),
+      disabled: emptyModelDisabled,
+      selectedProvider: emptyProviderCurrent,
+      selectedModel: "",
+      options: emptyModelOptions.filter((option) => String(option.value) !== ""),
+      placeholder: emptyProviderRequiredForModel,
+    },
+    endpoint: {
+      control: controlOf("endpoint", html),
+      current: emptyEndpointCurrent,
+      placeholder: emptyEndpointPlaceholder,
+      afterFirstPick,
+      providerApi: apiOf(chosenProvider.value),
+    },
+    reasoning: {
+      control: controlOf("reasoning", html),
+      disabled: emptyReasoningDisabled,
+      default: String(emptyPanel.settings.reasoning || ""),
+    },
+    settings: {
+      provider: String(emptyPanel.settings.provider || ""),
+      endpoint: String(emptyPanel.settings.endpoint || ""),
+      model: String(emptyPanel.settings.model || ""),
+    },
+    providerRequiredError: emptyProviderRequiredError,
+    guard,
+  };
+  // Re-paint the configured state so the DOM left behind is the one the main sections describe.
+  paint();
 
   return {
     spec: SPEC_VERSION,
@@ -294,6 +439,9 @@ export async function buildPayload() {
     endpoint,
     reasoning,
     i18n,
+    // SPEC 2.1: both states, plus the guard that proves an empty provider sends nothing.
+    emptyState,
+    guard,
   };
 }
 

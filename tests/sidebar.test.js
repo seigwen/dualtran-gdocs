@@ -117,7 +117,10 @@ describe("Sidebar rendering (real page script)", () => {
 
   it("renders one provider list and the models of the selected provider", () => {
     const { el } = mount(panelFixture());
-    expect(el("provider").options.map((option) => option.value)).toEqual(["anthropic", "openai"]);
+    // SPEC 2.1: the disabled placeholder leads the list; the real providers follow, unsorted
+    // around it, and the stored provider is the selection.
+    expect(el("provider").options[0]).toMatchObject({ value: "", disabled: true });
+    expect(el("provider").options.map((option) => option.value)).toEqual(["", "anthropic", "openai"]);
     expect(el("provider").value).toBe("openai");
     expect(el("model").options.map((option) => option.value)).toEqual(["gpt-4o", "gpt-5.6"]);
     expect(el("model").value).toBe("gpt-5.6");
@@ -170,6 +173,12 @@ describe("provider change behaviour (R3)", () => {
     el("provider").value = "anthropic";
     el("provider").fire("change");
     expect(el("model").options.map((option) => option.value)).toEqual(["claude-sonnet-4-5"]);
+    // The levels are declared per model, and a provider change loads the list without
+    // silently choosing a model, so the ladder is the sentinel alone until a model is picked.
+    expect(el("reasoning").options.map((option) => option.value)).toEqual(["lowest"]);
+    expect(el("reasoning").disabled).toBe(false);
+    el("model").value = "claude-sonnet-4-5";
+    el("model").fire("change");
     expect(el("reasoning").options.map((option) => option.value)).toEqual(["lowest", "none"]);
   });
 

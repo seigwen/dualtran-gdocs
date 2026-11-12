@@ -6,13 +6,18 @@
  */
 
 var PROPS = PropertiesService.getScriptProperties();
+/**
+ * SPEC 2.1: a fresh install has no AI provider. `provider: ""` is the unconfigured state — the
+ * sidebar shows a disabled "Select a provider" placeholder and nothing is sent until the user
+ * picks one. There is no implicit OpenAI default and no fallback on any request path.
+ */
 var DEFAULTS = {
   engine: "google",
   target: "zh-CN",
-  provider: "openai",
-  endpoint: "https://api.openai.com/v1",
+  provider: "",
+  endpoint: "",
   apiKey: "",
-  model: "gpt-5.4-mini",
+  model: "",
   reasoning: "lowest",
 };
 
@@ -159,10 +164,11 @@ function getPanelData() {
   var catalog = getCatalog();
   var panel = DualTranCore.buildPanelCatalogue(catalog, settings, []);
   var locale = activeLocale();
+  var ui = DUALTranI18NPanel(locale);
   return {
     settings: settings,
     locale: locale,
-    ui: DUALTranI18NPanel(locale),
+    ui: ui,
     languages: getLanguageOptions(locale),
     providers: panel.providers,
     modelsByProvider: panel.modelsByProvider,
@@ -170,11 +176,26 @@ function getPanelData() {
     reasoningByProvider: panel.reasoningByProvider,
     reasoning: panel.reasoning,
     reasoningLevels: DualTranCore.reasoningLevelsFor,
+    // The empty-state copy, pre-resolved so the page never hard-codes a string.
+    providerPlaceholder: ui.providerPlaceholder,
+    providerRequiredForModel: ui.providerRequiredForModel,
+    providerRequiredError: ui.providerRequiredError,
   };
+}
+
+/**
+ * SPEC 2.1: an AI translation needs a provider. Without one there is nothing to send to, so the
+ * call fails with the localized message before any network request is built.
+ */
+function requireProviderForAi(settings) {
+  if (settings.engine === "google") return;
+  if (String(settings.provider || "").trim()) return;
+  throw new Error(DUALTranI18NPanel(activeLocale()).providerRequiredError);
 }
 
 function translateText(text, settings) {
   settings = settings || getSettings();
+  requireProviderForAi(settings);
   if (settings.engine === "google") {
     // Apps Script's built-in Language service uses Google Translate without UrlFetchApp.
     // The public translate.googleapis.com endpoint rate-limits shared Apps Script egress
@@ -230,6 +251,17 @@ function translateSelection(settingsToUse) {
   var selection = doc.getSelection();
   var settings = settingsToUse || getSettings();
   var ui = DUALTranI18NPanel(activeLocale());
+  try {
+    requireProviderForAi(settings);
+  } catch (error) {
+    var required = String(error && error.message ? error.message : error);
+    try {
+      DocumentApp.getUi().alert(required);
+    } catch (alertError) {
+      // Headless (tests, triggers): the caller shows the message instead.
+    }
+    return { translated: 0, error: required, message: required };
+  }
   if (!selection) {
     var missing = ui.statusNoSelection;
     try {

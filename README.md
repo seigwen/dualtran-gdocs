@@ -4,7 +4,8 @@ Select paragraphs, translate them, and keep the original: the translation is ins
 paragraph directly below the source, in a muted colour.
 
 - **Google Translate** — no key, no configuration
-- **AI** — your own key, for the providers listed in `appsscript.json` → `urlFetchWhitelist`
+- **AI** — your own key. No provider is selected on a fresh install; pick one in the sidebar.
+  The add-on can only call providers listed in `appsscript.json` → `urlFetchWhitelist`
   (OpenAI, DeepSeek, OpenRouter, Anthropic, Moonshot, DashScope, BigModel, Groq, Gemini).
   Apps Script only allows `UrlFetchApp` calls to an explicit allow-list; to support another
   endpoint, add its `https://` prefix there and redeploy. Localhost endpoints cannot be reached
@@ -28,7 +29,10 @@ For a personal install, **Extensions → Apps Script** inside a Doc and paste th
 
 1. Select one or more paragraphs in the document.
 2. **DualTran → Open sidebar**, choose the engine and target language, save.
-3. **Translate selection** — each translation lands under its source paragraph.
+3. For the AI engine, **pick a provider** first — a fresh install has none selected
+   ("Select a provider"), and translating refuses with a message until one is chosen. Choosing a
+   provider fills the API base URL; type your own to override it.
+4. **Translate selection** — each translation lands under its source paragraph.
 
 ## Status
 

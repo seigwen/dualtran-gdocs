@@ -10,6 +10,7 @@
       button { margin-top: 14px; width: 100%; padding: 9px; background: #1a73e8; color: #fff; border: 0; border-radius: 4px; font-size: 13px; cursor: pointer; }
       button:disabled { background: #9aa0a6; cursor: default; }
       #status { margin-top: 12px; font-size: 12px; color: #5f6368; min-height: 18px; white-space: pre-wrap; }
+      #status.error { color: #d93025; }
       .hint { color: #80868b; font-size: 11px; margin-top: 2px; }
     </style>
   </head>
@@ -36,7 +37,7 @@
       <select id="reasoning"></select>
 
       <label for="endpoint" data-i18n="endpoint">API base URL</label>
-      <input id="endpoint" placeholder="https://api.openai.com/v1" />
+      <input id="endpoint" placeholder="https://" />
       <div class="hint" id="endpoint-hint" data-i18n="endpointHint">Must start with http:// or https://</div>
 
       <label for="apiKey" data-i18n="apiKey">API key</label>
@@ -74,10 +75,24 @@
           option.value = String(row.value);
           option.label = String(row.label == null ? row.value : row.label);
           option.textContent = option.label;
+          if (row.disabled) option.disabled = true;
           select.appendChild(option);
         });
-        if (selected) select.value = String(selected);
-        if (!select.value && select.options.length) select.selectedIndex = 0;
+        // An explicit selection (or an empty one) is never replaced by "the first row": the
+        // unconfigured provider picker must keep pointing at its placeholder.
+        if (selected !== undefined && selected !== null) select.value = String(selected);
+        return select;
+      }
+
+      /** The real provider rows; the disabled placeholder is not one of them. */
+      function providerRows() {
+        return ((panel && panel.providers) || []).filter(function (row) {
+          return String(row.value) !== "";
+        });
+      }
+
+      function hasProvider() {
+        return String(el("provider").value || "") !== "";
       }
 
       function labels() {
@@ -86,11 +101,10 @@
           nodes[i].textContent = t(nodes[i].getAttribute("data-i18n"));
         }
         el("panel-title").textContent = t("title");
-        el("run").textContent = t("translate");
       }
 
       function providerEntry(id) {
-        var rows = (panel && panel.providers) || [];
+        var rows = providerRows();
         for (var i = 0; i < rows.length; i += 1) {
           if (rows[i].value === id) return rows[i];
         }
@@ -104,6 +118,7 @@
 
       // R4: the picker always offers the "lowest" sentinel first, then the levels the selected
       // model actually declares. The sentinel is resolved server-side when the request is built.
+      // SPEC 2.1: while no provider is chosen the picker is disabled but keeps that sentinel.
       function setReasoningOptions(providerId, modelId) {
         var declared = levelsFor(providerId, modelId);
         var rows = [{ value: "lowest", label: "Lowest" }];
@@ -111,14 +126,52 @@
           var level = declared[i];
           rows.push({ value: level, label: level.charAt(0).toUpperCase() + level.slice(1) });
         }
-        setOptions(el("reasoning"), rows, settings.reasoning || "lowest");
+        var reasoning = el("reasoning");
+        setOptions(reasoning, rows, settings.reasoning || "lowest");
+        reasoning.disabled = !hasProvider();
       }
 
+      /**
+       * SPEC 2.1: the model picker belongs to the provider. No provider -> empty list, disabled,
+       * and the "select a provider first" copy in both the placeholder and the tooltip.
+       */
       function renderModels(selected) {
+        var model = el("model");
+        if (!hasProvider()) {
+          setOptions(model, [], "");
+          model.value = "";
+          model.disabled = true;
+          model.setAttribute("placeholder", t("providerRequiredForModel"));
+          model.setAttribute("title", t("providerRequiredForModel"));
+          return model;
+        }
         var byProvider = (panel && panel.modelsByProvider) || {};
         var rows = byProvider[el("provider").value] || [];
         if (!rows.length) rows = [{ value: "", label: t("statusCatalogOffline") }];
-        setOptions(el("model"), rows, selected);
+        setOptions(model, rows, selected);
+        model.disabled = false;
+        model.setAttribute("placeholder", "");
+        model.setAttribute("title", "");
+        return model;
+      }
+
+      /**
+       * SPEC 2.1: the primary button is disabled (with the same message as its tooltip) while the
+       * AI engine has no provider, and the status line says why.
+       */
+      function syncRunState() {
+        var button = el("run");
+        var status = el("status");
+        var required = el("engine").value === "ai" && !hasProvider();
+        button.textContent = t("translate");
+        button.disabled = required;
+        button.setAttribute("title", required ? t("providerRequiredError") : "");
+        status.className = required ? "error" : "";
+        if (required) {
+          status.textContent = t("providerRequiredError");
+        } else if (status.className === "" && status.textContent === t("providerRequiredError")) {
+          status.textContent = "";
+        }
       }
 
       /** R1/R2/R5: one entry point for the first paint, driven entirely by getPanelData(). */
@@ -128,18 +181,25 @@
         settings = panel.settings || {};
         labels();
 
+        var provider = el("provider");
+        // SPEC 2.1: the empty state shows a disabled, selected placeholder that is not one of
+        // the real providers, so the alphabetical list is untouched and cannot be sorted around.
+        setOptions(provider, [{ value: "", label: t("providerPlaceholder"), disabled: true }].concat(providerRows()), settings.provider || "");
+
         setOptions(el("target"), panel.languages || [], settings.target);
-        setOptions(el("provider"), panel.providers || [], settings.provider);
         renderModels(settings.model);
-        setReasoningOptions(el("provider").value, el("model").value);
+        setReasoningOptions(provider.value, el("model").value);
 
         el("engine").value = settings.engine || "google";
         el("endpoint").value = settings.endpoint || "";
+        el("endpoint").placeholder = "https://";
         el("apiKey").value = settings.apiKey || "";
         el("ai-fields").hidden = el("engine").value !== "ai";
         el("endpoint-hint").textContent = t("endpointHint");
         el("status").textContent = "";
+        el("status").className = "";
         endpointDirty = false;
+        syncRunState();
       }
 
       function collect() {
@@ -158,6 +218,13 @@
       function onProviderChange() {
         var next = el("provider").value;
         var entry = providerEntry(next);
+        // SPEC 2.1: no placeholder round trip — an empty selection never clears or refills the
+        // endpoint; the field stays exactly as the user left it.
+        if (!next) {
+          renderModels("");
+          setReasoningOptions(next, el("model").value);
+          return;
+        }
         if (!endpointDirty && entry && entry.api) el("endpoint").value = entry.api;
         renderModels("");
         setReasoningOptions(next, el("model").value);
@@ -173,9 +240,13 @@
 
       document.getElementById("engine").addEventListener("change", function () {
         el("ai-fields").hidden = this.value !== "ai";
+        syncRunState();
       });
 
-      document.getElementById("provider").addEventListener("change", onProviderChange);
+      document.getElementById("provider").addEventListener("change", function () {
+        onProviderChange();
+        syncRunState();
+      });
 
       document.getElementById("model").addEventListener("change", onModelChange);
 
