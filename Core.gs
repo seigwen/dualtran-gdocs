@@ -400,8 +400,10 @@
     settings = settings || {};
     var catalog = panel.catalog || { providers: [], modelsById: {}, reasoning: {} };
     var providers = buildProviderList(catalog, panel.customProviders);
-    var providerId = settings.provider || panel.defaultProvider || (providers[0] && providers[0].value) || "";
-    var models = modelsForProvider(catalog, providerId, panel.customProviders);
+    // SPEC 2.1: no provider means no provider — an unconfigured panel must not silently adopt
+    // the first row of the catalogue as its selection.
+    var providerId = settings.provider || panel.defaultProvider || "";
+    var models = providerId ? modelsForProvider(catalog, providerId, panel.customProviders) : [];
     var modelId = settings.model || panel.defaultModel || (models[0] && models[0].value) || "";
     var levels = reasoningForProvider(catalog, providerId, modelId);
     return {

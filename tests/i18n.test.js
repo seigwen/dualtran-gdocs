@@ -31,6 +31,9 @@ const PANEL_KEYS = [
   "endpointHint",
   "customModel",
   "customProvider",
+  "providerPlaceholder",
+  "providerRequiredForModel",
+  "providerRequiredError",
 ];
 
 describe("locale matrix", () => {
@@ -85,6 +88,18 @@ describe("key parity", () => {
     expect(table.zh_CN.provider).toBe("服务商");
     expect(table.zh_TW.provider).toBe("服務供應商");
     expect(table.zh_TW.statusTranslated).toContain("{COUNT}");
+  });
+
+  it("carries the SPEC 2.1 provider strings with the exact English source text", () => {
+    expect(table.en.providerPlaceholder).toBe("Select a provider");
+    expect(table.en.providerRequiredForModel).toBe("Select a provider first");
+    expect(table.en.providerRequiredError).toBe("Choose an AI provider in settings before translating.");
+    expect(table.zh_CN.providerPlaceholder).toBe("请选择 AI 提供商");
+    expect(table.zh_CN.providerRequiredForModel).toBe("请先选择提供商");
+    expect(table.zh_CN.providerRequiredError).toBe("翻译前请先在设置中选择 AI 提供商。");
+    expect(table.zh_TW.providerPlaceholder).toBe("請選擇 AI 提供商");
+    expect(table.zh_TW.providerRequiredForModel).toBe("請先選擇提供商");
+    expect(table.zh_TW.providerRequiredError).toBe("翻譯前請先在設定中選擇 AI 提供商。");
   });
 
   it("never leaks CJK text into a Latin-script locale", () => {

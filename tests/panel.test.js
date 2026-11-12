@@ -77,8 +77,27 @@ describe("getPanelData", () => {
     }
     expect(panel.ui.title).toBe("DualTran Translate");
     expect(panel.languages.length).toBeGreaterThanOrEqual(30);
-    expect(panel.modelsByProvider[panel.settings.provider].length).toBeGreaterThan(0);
+    expect(panel.settings.provider).toBe("");
+    expect(panel.models).toEqual([]);
     expect(panel.reasoning[0].value).toBe("lowest");
+  });
+
+  it("describes an unconfigured install explicitly (SPEC 2.1)", () => {
+    const { g } = boot({ fetchImpl: fetchOk });
+    const panel = g.getPanelData();
+    expect(panel.settings.provider).toBe("");
+    expect(panel.settings.model).toBe("");
+    expect(panel.settings.endpoint).toBe("");
+    expect(panel.providerPlaceholder).toBe("Select a provider");
+    expect(panel.providerRequiredError).toBe("Choose an AI provider in settings before translating.");
+  });
+
+  it("lists the stored provider's models once one is chosen", () => {
+    const { g } = boot({ fetchImpl: fetchOk });
+    g.saveSettings({ provider: "openai", endpoint: "https://api.openai.com/v1" });
+    const panel = g.getPanelData();
+    expect(panel.modelsByProvider.openai.length).toBeGreaterThan(0);
+    expect(panel.models.length).toBeGreaterThan(0);
   });
 
   it("picks the locale from Session.getActiveUserLocale", () => {
